@@ -110,10 +110,27 @@
   </div>
   <div class="main">
     <div>
-      <div class="panel">
-        <button onclick="startSim()">Start</button>
-        <button onclick="stopSim()">Stop</button>
-        <button onclick="resetSim()">Reset</button>
+      <div class="panel" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <!-- Auto simulation controls -->
+        <div style="display:flex;gap:6px">
+          <button onclick="startSim()">Start</button>
+          <button onclick="stopSim()">Stop</button>
+          <button onclick="resetSim()">Reset</button>
+        </div>
+        <!-- Manual / TransactionLog group -->
+        <div style="display:flex;align-items:stretch;border:1px solid #0e7490;border-radius:8px;overflow:hidden;margin-left:4px" title="Manual simulation driven by TransactionLog">
+          <div style="background:#0c4a6e;color:#7dd3fc;font-size:11px;font-weight:600;padding:0 8px;display:flex;align-items:center;letter-spacing:.05em;white-space:nowrap">
+            TX LOG
+          </div>
+          <button onclick="startManually()" id="btnManual"
+            style="background:#0e7490;color:#fff;border:none;border-right:1px solid #155e75;padding:4px 12px;cursor:pointer;font-size:13px">
+            ▶ Start Manually
+          </button>
+          <button onclick="openTxnManager()"
+            style="background:#164e63;color:#67e8f9;border:none;padding:4px 12px;cursor:pointer;font-size:13px">
+            📋 Manager
+          </button>
+        </div>
       </div>
       <div class="panel">
         <h3>Simulation Configuration</h3>
@@ -144,15 +161,98 @@
     </div>
   </div>
 
+  <!-- TransactionLog Manager — floating draggable panel (no backdrop) -->
+  <div id="txnModal" style="display:none;position:fixed;top:80px;right:24px;width:680px;max-height:82vh;
+       background:#1e293b;border-radius:12px;border:1px solid #334155;
+       box-shadow:0 8px 32px rgba(0,0,0,.6);z-index:1000;
+       display:none;flex-direction:column;gap:0;overflow:hidden;resize:both;min-width:380px;min-height:220px">
+    <!-- Title bar — drag handle -->
+    <div id="txnTitleBar" style="display:flex;justify-content:space-between;align-items:center;
+         padding:10px 16px;background:#0f172a;border-bottom:1px solid #334155;cursor:grab;user-select:none;flex-shrink:0">
+      <span style="font-size:15px;font-weight:700;display:flex;align-items:center;gap:6px">
+        <span style="color:#7dd3fc">⠿</span> 📋 TransactionLog Manager
+        <span style="font-size:11px;color:#475569;font-weight:400">(drag to move)</span>
+      </span>
+      <button onclick="closeTxnManager()" style="background:#ef4444;color:#fff;border:none;border-radius:6px;
+              padding:3px 10px;cursor:pointer;font-size:14px;line-height:1.4">✕</button>
+    </div>
+    <!-- Body -->
+    <div style="padding:16px;display:flex;flex-direction:column;gap:12px;overflow:auto;flex:1">
+      <div style="display:flex;gap:8px;align-items:flex-end">
+        <div style="display:flex;flex-direction:column;gap:4px;flex:1">
+          <label style="font-size:12px;color:#94a3b8">Serial Number</label>
+          <input id="txnSN" placeholder="e.g. SN-001" style="background:#0f172a;color:#e2e8f0;border:1px solid #475569;border-radius:6px;padding:6px 10px;font-size:14px">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px;flex:1">
+          <label style="font-size:12px;color:#94a3b8">Process Name</label>
+          <select id="txnPN" style="background:#0f172a;color:#e2e8f0;border:1px solid #475569;border-radius:6px;padding:6px 10px;font-size:14px">
+            <option>Loader</option><option>SMT</option><option>AOI</option>
+            <option>Assembly</option><option>ICT</option><option>Repair</option>
+            <option>Pack</option><option>Output</option>
+          </select>
+        </div>
+        <button onclick="insertTxn()" style="background:#22c55e;color:#fff;border:none;border-radius:6px;
+                padding:7px 18px;cursor:pointer;font-size:14px;white-space:nowrap">＋ Insert</button>
+      </div>
+      <div style="font-size:12px" id="txnStatus"></div>
+      <div style="overflow:auto;flex:1;border:1px solid #334155;border-radius:8px;max-height:400px">
+        <table id="txnTable" style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr style="background:#0f172a;position:sticky;top:0">
+              <th style="padding:8px 10px;text-align:left;color:#94a3b8;font-weight:600">ID</th>
+              <th style="padding:8px 10px;text-align:left;color:#94a3b8;font-weight:600">SerialNumber</th>
+              <th style="padding:8px 10px;text-align:left;color:#94a3b8;font-weight:600">ProcessName</th>
+              <th style="padding:8px 10px;text-align:left;color:#94a3b8;font-weight:600">CreationTime</th>
+              <th style="padding:8px 10px;text-align:left;color:#94a3b8;font-weight:600">Action</th>
+            </tr>
+          </thead>
+          <tbody id="txnTbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
   <script>
+    // ── State ──────────────────────────────────────────────────────────────────
     let units = [], uid = 1, input = 0, passCt = 0, failCt = 0, startTime = null, loop = null, gen = null;
     let zoomLevel = 1;
     const ZOOM_STEP = 0.1, ZOOM_MIN = 0.3, ZOOM_MAX = 2;
+
+    // Station layout positions
     const st = { Loader: [80, 320], SMT: [280, 320], AOI: [500, 320], Assembly: [720, 320], ICT: [940, 320], Pack: [1160, 320], Output: [1380, 320], Repair: [760, 540] };
     const floor = document.getElementById('floor');
-    const svg = document.getElementById('svg');
+    const svg   = document.getElementById('svg');
     const floorWrap = document.getElementById('floorWrap');
 
+    // ── sql.js DB ──────────────────────────────────────────────────────────────
+    let db = null;                // will be set after sql.js loads
+    let manualLoop = null;        // poll interval for manual mode
+    let lastProcessedId = 0;      // highest TransactionLog ID already acted on
+    // per-serial memory: snState[sn] = { node: 'ProcessName' }
+    const snState = {};
+
+    initDB();
+
+    async function initDB() {
+      try {
+        const SQL = await initSqlJs({
+          locateFile: f => 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/' + f
+        });
+        db = new SQL.Database();
+        db.run(`CREATE TABLE IF NOT EXISTS TransactionLog (
+          ID INTEGER PRIMARY KEY AUTOINCREMENT,
+          SerialNumber VARCHAR(200) NOT NULL,
+          ProcessName  VARCHAR(200) NOT NULL,
+          CreationTime DATETIME DEFAULT (datetime('now','localtime'))
+        )`);
+        logMsg('[DB] Local TransactionLog database ready');
+      } catch(e) {
+        logMsg('[DB ERROR] ' + e.message);
+      }
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────────────────
     function logMsg(t) {
       document.getElementById('log').innerHTML = new Date().toLocaleTimeString() + ' ' + t + '<br>' + document.getElementById('log').innerHTML;
     }
@@ -160,65 +260,64 @@
     function proc(n) { return (parseFloat(document.getElementById('cfg' + n).value) || 1) * 1000; }
     function conveyorTime() { return (parseFloat(document.getElementById('cfgConveyor').value) || 1) * 1000; }
 
+    // ── Station DOM ────────────────────────────────────────────────────────────
     Object.entries(st).forEach(([n, p]) => {
       const d = document.createElement('div');
       d.className = 'station';
       d.id = n;
       d.style.left = p[0] + 'px';
-      d.style.top = p[1] + 'px';
-      d.innerHTML = '<b>' + n + '</b><div class=wipc id=wip_' + n + '>WIP:0</div>';
+      d.style.top  = p[1] + 'px';
+      d.innerHTML  = '<b>' + n + '</b><div class=wipc id=wip_' + n + '>WIP:0</div>';
       floor.appendChild(d);
       drag(d);
     });
 
+    // ── SVG connector lines ────────────────────────────────────────────────────
     function draw() {
       svg.innerHTML = '';
-      [['Loader', 'SMT'], ['SMT', 'AOI'], ['AOI', 'Assembly'], ['Assembly', 'ICT'], ['ICT', 'Pack'], ['Pack', 'Output'], ['AOI', 'Repair'], ['Repair', 'ICT']].forEach(r => {
+      [['Loader','SMT'],['SMT','AOI'],['AOI','Assembly'],['Assembly','ICT'],
+       ['ICT','Pack'],['Pack','Output'],['AOI','Repair'],['Repair','ICT']].forEach(r => {
         const a = document.getElementById(r[0]);
         const b = document.getElementById(r[1]);
-        svg.innerHTML += "<line x1='" + (a.offsetLeft + 70) + "' y1='" + (a.offsetTop + 30) + "' x2='" + (b.offsetLeft + 70) + "' y2='" + (b.offsetTop + 30) + "' stroke='#64748b' stroke-width='5'/>";
+        svg.innerHTML += "<line x1='" + (a.offsetLeft+70) + "' y1='" + (a.offsetTop+30) +
+                         "' x2='" + (b.offsetLeft+70) + "' y2='" + (b.offsetTop+30) +
+                         "' stroke='#64748b' stroke-width='5'/>";
       });
     }
 
+    // ── Station drag ───────────────────────────────────────────────────────────
     function drag(el) {
       let moving = false, x = 0, y = 0;
       el.onmousedown = e => {
         if (e.button !== 0) return;
         e.stopPropagation();
-        moving = true;
-        x = e.clientX;
-        y = e.clientY;
+        moving = true; x = e.clientX; y = e.clientY;
       };
       window.addEventListener('mousemove', e => {
         if (!moving) return;
-        const dx = (e.clientX - x) / zoomLevel;
-        const dy = (e.clientY - y) / zoomLevel;
-        el.style.left = (el.offsetLeft + dx) + 'px';
-        el.style.top = (el.offsetTop + dy) + 'px';
-        x = e.clientX;
-        y = e.clientY;
+        el.style.left = (el.offsetLeft + (e.clientX - x) / zoomLevel) + 'px';
+        el.style.top  = (el.offsetTop  + (e.clientY - y) / zoomLevel) + 'px';
+        x = e.clientX; y = e.clientY;
         draw();
       });
       window.addEventListener('mouseup', () => { moving = false; });
     }
 
+    // ── Floor pan ──────────────────────────────────────────────────────────────
     function setupPanelPan() {
       let panning = false, startX = 0, startY = 0, startScrollLeft = 0, startScrollTop = 0;
       floorWrap.addEventListener('mousedown', e => {
-        if (e.button !== 0) return;
-        if (e.target.closest('.station')) return;
+        if (e.button !== 0 || e.target.closest('.station')) return;
         panning = true;
         floorWrap.classList.add('panning');
-        startX = e.clientX;
-        startY = e.clientY;
-        startScrollLeft = floorWrap.scrollLeft;
-        startScrollTop = floorWrap.scrollTop;
+        startX = e.clientX; startY = e.clientY;
+        startScrollLeft = floorWrap.scrollLeft; startScrollTop = floorWrap.scrollTop;
         e.preventDefault();
       });
       window.addEventListener('mousemove', e => {
         if (!panning) return;
         floorWrap.scrollLeft = startScrollLeft - (e.clientX - startX);
-        floorWrap.scrollTop = startScrollTop - (e.clientY - startY);
+        floorWrap.scrollTop  = startScrollTop  - (e.clientY - startY);
       });
       window.addEventListener('mouseup', () => {
         if (!panning) return;
@@ -230,9 +329,11 @@
     draw();
     setupPanelPan();
 
+    // ── Auto simulation ────────────────────────────────────────────────────────
     function startSim() {
       if (loop) return;
-      logMsg('[SYSTEM] Simulation Started');
+      stopManual();
+      logMsg('[SYSTEM] Auto Simulation Started');
       startTime = Date.now();
       gen = setInterval(() => {
         const id = uid++;
@@ -244,7 +345,7 @@
     }
 
     function stopSim() {
-      if (gen) clearInterval(gen);
+      if (gen)  clearInterval(gen);
       if (loop) clearInterval(loop);
       gen = loop = null;
       logMsg('[SYSTEM] Simulation Stopped');
@@ -252,24 +353,110 @@
 
     function resetSim() {
       stopSim();
+      stopManual();
       units.forEach(u => u.el && u.el.remove());
-      units = [];
-      uid = 1;
-      input = 0;
-      passCt = 0;
-      failCt = 0;
+      units = []; uid = 1; input = 0; passCt = 0; failCt = 0;
+      Object.keys(snState).forEach(k => delete snState[k]);
+      lastProcessedId = 0;
       document.getElementById('log').innerHTML = '';
       update();
       logMsg('[SYSTEM] Simulation Reset');
     }
 
+    // ── Manual simulation (driven by TransactionLog) ───────────────────────────
+    function startManually() {
+      if (!db) { logMsg('[ERROR] Database not ready yet'); return; }
+      if (manualLoop) { logMsg('[MANUAL] Already running'); return; }
+      stopSim(); // stop auto sim if running
+
+      // seed lastProcessedId to current max so only NEW rows trigger animation
+      const res = db.exec('SELECT COALESCE(MAX(ID),0) FROM TransactionLog');
+      lastProcessedId = res.length ? res[0].values[0][0] : 0;
+
+      startTime = startTime || Date.now();
+      loop = setInterval(tick, 40);             // keep animation ticking
+      manualLoop = setInterval(pollTransactionLog, 500);
+      document.getElementById('btnManual').textContent = '⏹ Stop Manual';
+      document.getElementById('btnManual').onclick = stopManual;
+      logMsg('[MANUAL] Manual simulation started — waiting for TransactionLog entries');
+    }
+
+    function stopManual() {
+      if (manualLoop) clearInterval(manualLoop);
+      manualLoop = null;
+      if (loop) { clearInterval(loop); loop = null; }
+      document.getElementById('btnManual').textContent = '▶ Start Manually';
+      document.getElementById('btnManual').onclick = startManually;
+      if (manualLoop !== null) logMsg('[MANUAL] Manual simulation stopped');
+    }
+
+    /**
+     * Poll for new TransactionLog rows.
+     * Logic: when a serial number arrives at a ProcessName for the first time,
+     *        spawn a PCB unit at that process. When it arrives again at a
+     *        different process, animate it moving from its last known process
+     *        to the new one.
+     */
+    function pollTransactionLog() {
+      if (!db) return;
+      const rows = db.exec(
+        'SELECT ID, SerialNumber, ProcessName FROM TransactionLog WHERE ID > ' + lastProcessedId + ' ORDER BY ID ASC'
+      );
+      if (!rows.length) return;
+
+      rows[0].values.forEach(([id, sn, pn]) => {
+        lastProcessedId = id;
+        const validNode = document.getElementById(pn);
+        if (!validNode) {
+          logMsg('[MANUAL][WARN] Unknown ProcessName "' + pn + '" for ' + sn + ' — skipped');
+          return;
+        }
+
+        const prev = snState[sn];
+        if (!prev) {
+          // First time we see this SN — spawn it at this process
+          snState[sn] = { node: pn };
+          input++;
+          const u = { id: sn, node: pn, enter: Date.now(), wait: 0, state: 'normal', manual: true };
+          units.push(u);
+          logMsg('[MANUAL] ' + sn + ' appeared at ' + pn);
+        } else if (prev.node !== pn) {
+          // SN moved to a new process — animate transit
+          const u = units.find(x => x.id === sn && x.manual);
+          if (u) {
+            // Force immediate move toward new target
+            u.node      = prev.node;
+            u.target    = pn;
+            u.prog      = 0;
+            u.moveStart = Date.now();
+            u.moveDuration = conveyorTime();
+            u.enter     = Date.now();
+            u.wait      = 0;
+          } else {
+            // Unit already finished — re-spawn in transit
+            const nu = { id: sn, node: prev.node, target: pn, prog: 0, moveStart: Date.now(),
+                         moveDuration: conveyorTime(), enter: Date.now(), wait: 0, state: 'normal', manual: true };
+            units.push(nu);
+          }
+          logMsg('[MANUAL] ' + sn + ': ' + prev.node + ' → ' + pn);
+          snState[sn].node = pn;
+
+          if (pn === 'Output') {
+            passCt++;
+            logMsg('[MANUAL][COMPLETE] ' + sn + ' completed production');
+          }
+        }
+        update();
+      });
+    }
+
+    // ── Shared tick (used by both auto & manual) ───────────────────────────────
     function nextNode(u) {
-      if (u.node === 'Loader') return 'SMT';
-      if (u.node === 'SMT') return 'AOI';
+      if (u.node === 'Loader')   return 'SMT';
+      if (u.node === 'SMT')      return 'AOI';
       if (u.node === 'AOI') {
         if (Math.random() < cfgAOIFail.value / 100) {
-          failCt++;
-          u.state = 'fail';
+          failCt++; u.state = 'fail';
           logMsg('[FAIL] Unit ' + u.id + ' FAILED AOI -> Repair');
           return 'Repair';
         }
@@ -279,52 +466,50 @@
       if (u.node === 'Assembly') return 'ICT';
       if (u.node === 'ICT') {
         if (Math.random() < cfgICTFail.value / 100) {
-          failCt++;
-          u.state = 'fail';
+          failCt++; u.state = 'fail';
           logMsg('[FAIL] Unit ' + u.id + ' FAILED ICT -> Repair');
           return 'Repair';
         }
         logMsg('[PASS] Unit ' + u.id + ' PASSED ICT');
         return 'Pack';
       }
-      if (u.node === 'Repair') {
-        u.state = 'repair';
-        return 'ICT';
-      }
-      if (u.node === 'Pack') return 'Output';
+      if (u.node === 'Repair') { u.state = 'repair'; return 'ICT'; }
+      if (u.node === 'Pack')   return 'Output';
     }
 
     function tick() {
       units.forEach(u => {
-        if (!u.target && Date.now() - u.enter < u.wait) return;
-        if (!u.target) {
+        // Manual units get their target assigned by pollTransactionLog; skip auto routing
+        if (!u.target && !u.manual && Date.now() - u.enter < u.wait) return;
+        if (!u.target && !u.manual) {
           u.target = nextNode(u);
-          u.prog = 0;
-          u.moveStart = Date.now();
-          u.moveDuration = conveyorTime();
+          u.prog = 0; u.moveStart = Date.now(); u.moveDuration = conveyorTime();
         }
-        if (!u.el) {
-          u.el = document.createElement('div');
-          floor.appendChild(u.el);
-        }
+        // Manual unit sitting idle at a node (no target yet)
+        if (!u.target) return;
+
+        if (!u.el) { u.el = document.createElement('div'); floor.appendChild(u.el); }
+
         const a = document.getElementById(u.node);
         const b = document.getElementById(u.target);
+        if (!a || !b) return;
+
         u.prog = Math.min(1, (Date.now() - u.moveStart) / u.moveDuration);
         u.el.className = 'pcb ' + (u.state === 'fail' ? 'fail' : u.state === 'repair' ? 'repair' : 'normal');
         u.el.style.left = (a.offsetLeft + (b.offsetLeft - a.offsetLeft) * u.prog) + 'px';
-        u.el.style.top = (a.offsetTop + (b.offsetTop - a.offsetTop) * u.prog) + 'px';
+        u.el.style.top  = (a.offsetTop  + (b.offsetTop  - a.offsetTop)  * u.prog) + 'px';
+
         if (u.prog >= 1) {
-          u.node = u.target;
-          u.target = null;
-          logMsg('[MOVE] Unit ' + u.id + ' entered ' + u.node);
-          if (u.node === 'Repair') logMsg('[REPAIR] Unit ' + u.id + ' entered Repair');
-          u.enter = Date.now();
-          u.wait = u.node === 'Output' ? 0 : proc(u.node);
-          if (u.node === 'Output') {
-            passCt++;
-            logMsg('[COMPLETE] Unit ' + u.id + ' completed production');
-            u.done = true;
-            u.el.remove();
+          u.node = u.target; u.target = null;
+          if (!u.manual) {
+            logMsg('[MOVE] Unit ' + u.id + ' entered ' + u.node);
+            if (u.node === 'Repair') logMsg('[REPAIR] Unit ' + u.id + ' entered Repair');
+            u.enter = Date.now(); u.wait = u.node === 'Output' ? 0 : proc(u.node);
+            if (u.node === 'Output') {
+              passCt++;
+              logMsg('[COMPLETE] Unit ' + u.id + ' completed production');
+              u.done = true; u.el.remove();
+            }
           }
         }
       });
@@ -341,34 +526,127 @@
       f.textContent = failCt;
       w.textContent = units.length;
       y.textContent = ((passCt / Math.max(1, passCt + failCt)) * 100).toFixed(1) + '%';
-      uph.textContent = startTime ? Math.round(passCt / Math.max((Date.now() - startTime) / 3600000, 1 / 3600)) : 0;
+      uph.textContent = startTime ? Math.round(passCt / Math.max((Date.now() - startTime) / 3600000, 1/3600)) : 0;
     }
 
+    // ── Zoom ───────────────────────────────────────────────────────────────────
     function applyZoom() {
       floor.style.transform = 'scale(' + zoomLevel + ')';
       document.getElementById('zoomLbl').textContent = Math.round(zoomLevel * 100) + '%';
     }
-
-    function zoomIn() {
-      zoomLevel = Math.min(ZOOM_MAX, +(zoomLevel + ZOOM_STEP).toFixed(2));
-      applyZoom();
-    }
-
-    function zoomOut() {
-      zoomLevel = Math.max(ZOOM_MIN, +(zoomLevel - ZOOM_STEP).toFixed(2));
-      applyZoom();
-    }
-
-    function zoomReset() {
-      zoomLevel = 1;
-      applyZoom();
-    }
+    function zoomIn()    { zoomLevel = Math.min(ZOOM_MAX, +(zoomLevel + ZOOM_STEP).toFixed(2)); applyZoom(); }
+    function zoomOut()   { zoomLevel = Math.max(ZOOM_MIN, +(zoomLevel - ZOOM_STEP).toFixed(2)); applyZoom(); }
+    function zoomReset() { zoomLevel = 1; applyZoom(); }
 
     floorWrap.addEventListener('wheel', e => {
       if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
       e.deltaY < 0 ? zoomIn() : zoomOut();
     }, { passive: false });
+
+    // ── TransactionLog Manager ─────────────────────────────────────────────────
+    function openTxnManager() {
+      const modal = document.getElementById('txnModal');
+      modal.style.display = 'flex';
+      refreshTxnTable();
+    }
+
+    function closeTxnManager() {
+      document.getElementById('txnModal').style.display = 'none';
+    }
+
+    // Drag-to-move for the floating panel
+    (function () {
+      const modal = document.getElementById('txnModal');
+      const bar   = document.getElementById('txnTitleBar');
+      let dragging = false, ox = 0, oy = 0;
+
+      bar.addEventListener('mousedown', e => {
+        if (e.button !== 0) return;
+        dragging = true;
+        bar.style.cursor = 'grabbing';
+        // Use current position; switch from right-anchored to left-anchored on first drag
+        const rect = modal.getBoundingClientRect();
+        modal.style.right  = 'auto';
+        modal.style.bottom = 'auto';
+        modal.style.left   = rect.left + 'px';
+        modal.style.top    = rect.top  + 'px';
+        ox = e.clientX - rect.left;
+        oy = e.clientY - rect.top;
+        e.preventDefault();
+      });
+
+      window.addEventListener('mousemove', e => {
+        if (!dragging) return;
+        modal.style.left = (e.clientX - ox) + 'px';
+        modal.style.top  = (e.clientY - oy) + 'px';
+      });
+
+      window.addEventListener('mouseup', () => {
+        if (!dragging) return;
+        dragging = false;
+        bar.style.cursor = 'grab';
+      });
+    })();
+
+    function insertTxn() {
+      if (!db) { setTxnStatus('Database not ready', '#ef4444'); return; }
+      const sn = document.getElementById('txnSN').value.trim();
+      const pn = document.getElementById('txnPN').value;
+      if (!sn) { setTxnStatus('Serial Number is required', '#ef4444'); return; }
+      db.run(
+        "INSERT INTO TransactionLog (SerialNumber, ProcessName) VALUES (?, ?)",
+        [sn, pn]
+      );
+      document.getElementById('txnSN').value = '';
+      setTxnStatus('✔ Inserted ' + sn + ' → ' + pn, '#22c55e');
+      refreshTxnTable();
+    }
+
+    function deleteTxn(id) {
+      if (!db) return;
+      db.run('DELETE FROM TransactionLog WHERE ID = ?', [id]);
+      refreshTxnTable();
+    }
+
+    function refreshTxnTable() {
+      if (!db) return;
+      const tbody = document.getElementById('txnTbody');
+      tbody.innerHTML = '';
+      const res = db.exec('SELECT ID, SerialNumber, ProcessName, CreationTime FROM TransactionLog ORDER BY ID DESC');
+      if (!res.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="padding:12px;text-align:center;color:#64748b">No records</td></tr>';
+        return;
+      }
+      res[0].values.forEach(([id, sn, pn, ct]) => {
+        const tr = document.createElement('tr');
+        tr.style.borderTop = '1px solid #1e3a5f';
+        tr.innerHTML =
+          '<td style="padding:6px 10px">' + id + '</td>' +
+          '<td style="padding:6px 10px;color:#38bdf8">' + esc(sn) + '</td>' +
+          '<td style="padding:6px 10px">' + esc(pn) + '</td>' +
+          '<td style="padding:6px 10px;color:#94a3b8;font-size:12px">' + esc(ct||'') + '</td>' +
+          '<td style="padding:6px 10px"><button onclick="deleteTxn(' + id + ')" ' +
+          'style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:12px">Del</button></td>';
+        tbody.appendChild(tr);
+      });
+    }
+
+    function setTxnStatus(msg, color) {
+      const el = document.getElementById('txnStatus');
+      el.textContent = msg;
+      el.style.color = color;
+      setTimeout(() => { el.textContent = ''; }, 3000);
+    }
+
+    function esc(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // Allow pressing Enter in the SN field to insert
+    document.getElementById('txnSN').addEventListener('keydown', e => {
+      if (e.key === 'Enter') insertTxn();
+    });
 
     update();
   </script>
