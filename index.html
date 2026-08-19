@@ -1,1 +1,376 @@
-<!DOCTYPE html><html><head><meta charset="utf-8"><title>Production Simulation Dashboard Event Log Fixed</title><style>body{margin:0;background:#0f172a;color:#fff;font-family:Segoe UI}.header{padding:14px;background:#111827;font-size:24px;font-weight:700}.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;padding:12px}.card,.panel{background:#1e293b;border-radius:10px;padding:10px}.v{font-size:24px;color:#38bdf8}.main{display:grid;grid-template-columns:420px 1fr;gap:12px;padding:12px}.log{height:280px;overflow:auto;background:#0b1220;padding:6px;font-size:12px}.floor{position:relative;width:1700px;height:900px;background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:40px 40px}.floorWrap{height:760px;overflow:auto}.conn{position:absolute;width:1700px;height:900px}.station{position:absolute;width:140px;padding:10px;background:linear-gradient(145deg,#334155,#0f172a);border:1px solid #64748b;border-radius:12px;cursor:move}.wipc{color:#38bdf8;font-weight:bold}.pcb{position:absolute;width:18px;height:18px;border-radius:50%}.normal{background:#22c55e}.fail{background:#ef4444}.repair{background:#f59e0b}.cfg-row{display:flex;justify-content:space-between;margin:4px 0}.cfg-row input{width:80px}</style></head><body><div class="header">Production Simulation Dashboard - Event Log Fixed</div><div class="kpis"><div class="card">Input<div id=i class=v>0</div></div><div class="card">Output<div id=o class=v>0</div></div><div class="card">Yield<div id=y class=v>100%</div></div><div class="card">WIP<div id=w class=v>0</div></div><div class="card">Fail<div id=f class=v>0</div></div><div class="card">UPH<div id=uph class=v>0</div></div></div><div class="main"><div><div class="panel"><button onclick='startSim()'>Start</button> <button onclick='stopSim()'>Stop</button> <button onclick='resetSim()'>Reset</button></div><div class="panel"><h3>Simulation Configuration</h3><div class='cfg-row'><label>Loader Time(s)</label><input id='cfgLoader' value='0.5'></div><div class='cfg-row'><label>SMT Time(s)</label><input id='cfgSMT' value='1'></div><div class='cfg-row'><label>AOI Time(s)</label><input id='cfgAOI' value='0.8'></div><div class='cfg-row'><label>Assembly Time(s)</label><input id='cfgAssembly' value='1'></div><div class='cfg-row'><label>ICT Time(s)</label><input id='cfgICT' value='0.8'></div><div class='cfg-row'><label>Repair Time(s)</label><input id='cfgRepair' value='1.5'></div><div class='cfg-row'><label>Pack Time(s)</label><input id='cfgPack' value='0.5'></div><div class='cfg-row'><label>Conveyor Time(s)</label><input id='cfgConveyor' value='1'></div><hr><div class='cfg-row'><label>AOI Failure %</label><input id='cfgAOIFail' value='15'></div><div class='cfg-row'><label>ICT Failure %</label><input id='cfgICTFail' value='8'></div></div><div class='panel'><div id='log' class='log'></div></div></div><div class='panel floorWrap'><div id='floor' class='floor'><svg id='svg' class='conn'></svg></div></div></div><script>let units=[],uid=1,input=0,passCt=0,failCt=0,startTime=null,loop=null,gen=null;const st={Loader:[80,320],SMT:[280,320],AOI:[500,320],Assembly:[720,320],ICT:[940,320],Pack:[1160,320],Output:[1380,320],Repair:[760,540]};const floor=document.getElementById('floor'),svg=document.getElementById('svg');function logMsg(t){document.getElementById('log').innerHTML=new Date().toLocaleTimeString()+' '+t+'<br>'+document.getElementById('log').innerHTML;}function proc(n){return (parseFloat(document.getElementById('cfg'+n).value)||1)*1000;}function conveyorTime(){return (parseFloat(document.getElementById('cfgConveyor').value)||1)*1000;}Object.entries(st).forEach(([n,p])=>{const d=document.createElement('div');d.className='station';d.id=n;d.style.left=p[0]+'px';d.style.top=p[1]+'px';d.innerHTML='<b>'+n+'</b><div class=wipc id=wip_'+n+'>WIP:0</div>';floor.appendChild(d);drag(d);});function draw(){svg.innerHTML='';[['Loader','SMT'],['SMT','AOI'],['AOI','Assembly'],['Assembly','ICT'],['ICT','Pack'],['Pack','Output'],['AOI','Repair'],['Repair','ICT']].forEach(r=>{let a=document.getElementById(r[0]),b=document.getElementById(r[1]);svg.innerHTML+=`<line x1='${a.offsetLeft+70}' y1='${a.offsetTop+30}' x2='${b.offsetLeft+70}' y2='${b.offsetTop+30}' stroke='#64748b' stroke-width='5'/>`;});}function drag(el){let m=false,x,y;el.onmousedown=e=>{m=true;x=e.clientX;y=e.clientY};window.addEventListener('mousemove',e=>{if(!m)return;el.style.left=(el.offsetLeft+e.clientX-x)+'px';el.style.top=(el.offsetTop+e.clientY-y)+'px';x=e.clientX;y=e.clientY;draw()});window.addEventListener('mouseup',()=>m=false)}draw();function startSim(){if(loop)return;logMsg('[SYSTEM] Simulation Started');startTime=Date.now();gen=setInterval(()=>{const id=uid++;input++;units.push({id,node:'Loader',enter:Date.now(),wait:proc('Loader'),state:'normal'});logMsg('[CREATE] Unit '+id+' entered Loader');},1000);loop=setInterval(tick,40)}function stopSim(){if(gen)clearInterval(gen);if(loop)clearInterval(loop);gen=loop=null;logMsg('[SYSTEM] Simulation Stopped')}function resetSim(){stopSim();units.forEach(u=>u.el&&u.el.remove());units=[];uid=1;input=0;passCt=0;failCt=0;document.getElementById('log').innerHTML='';update();logMsg('[SYSTEM] Simulation Reset')}function nextNode(u){if(u.node==='Loader')return'SMT';if(u.node==='SMT')return'AOI';if(u.node==='AOI'){if(Math.random()<cfgAOIFail.value/100){failCt++;u.state='fail';logMsg('[FAIL] Unit '+u.id+' FAILED AOI -> Repair');return 'Repair';}logMsg('[PASS] Unit '+u.id+' PASSED AOI');return'Assembly';}if(u.node==='Assembly')return'ICT';if(u.node==='ICT'){if(Math.random()<cfgICTFail.value/100){failCt++;u.state='fail';logMsg('[FAIL] Unit '+u.id+' FAILED ICT -> Repair');return 'Repair';}logMsg('[PASS] Unit '+u.id+' PASSED ICT');return'Pack';}if(u.node==='Repair'){u.state='repair';return'ICT';}if(u.node==='Pack')return'Output';}function tick(){units.forEach(u=>{if(!u.target&&Date.now()-u.enter<u.wait)return;if(!u.target){u.target=nextNode(u);u.prog=0;u.moveStart=Date.now();u.moveDuration=conveyorTime();}if(!u.el){u.el=document.createElement('div');floor.appendChild(u.el);}let a=document.getElementById(u.node),b=document.getElementById(u.target);u.prog=Math.min(1,(Date.now()-u.moveStart)/u.moveDuration);u.el.className='pcb '+(u.state==='fail'?'fail':u.state==='repair'?'repair':'normal');u.el.style.left=(a.offsetLeft+(b.offsetLeft-a.offsetLeft)*u.prog)+'px';u.el.style.top=(a.offsetTop+(b.offsetTop-a.offsetTop)*u.prog)+'px';if(u.prog>=1){u.node=u.target;u.target=null;logMsg('[MOVE] Unit '+u.id+' entered '+u.node);if(u.node==='Repair')logMsg('[REPAIR] Unit '+u.id+' entered Repair');u.enter=Date.now();u.wait=u.node==='Output'?0:proc(u.node);if(u.node==='Output'){passCt++;logMsg('[COMPLETE] Unit '+u.id+' completed production');u.done=true;u.el.remove();}}});units=units.filter(x=>!x.done);update()}function update(){Object.keys(st).forEach(n=>{document.getElementById('wip_'+n).textContent='WIP:'+units.filter(u=>u.node===n).length});i.textContent=input;o.textContent=passCt;f.textContent=failCt;w.textContent=units.length;y.textContent=((passCt/Math.max(1,passCt+failCt))*100).toFixed(1)+'%';uph.textContent=startTime?Math.round(passCt/Math.max((Date.now()-startTime)/3600000,1/3600)):0;}update();</script></body></html>
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Production Simulation Dashboard</title>
+  <style>
+    body { margin: 0; background: #0f172a; color: #fff; font-family: Segoe UI; }
+    .header { padding: 14px; background: #111827; font-size: 24px; font-weight: 700; }
+    .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; padding: 12px; }
+    .card, .panel { background: #1e293b; border-radius: 10px; padding: 10px; }
+    .v { font-size: 24px; color: #38bdf8; }
+    .main { display: grid; grid-template-columns: 420px 1fr; gap: 12px; padding: 12px; }
+    .log { height: 280px; overflow: auto; background: #0b1220; padding: 6px; font-size: 12px; }
+    .floor {
+      position: relative;
+      width: 1700px;
+      height: 900px;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, .03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, .03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      transform-origin: top left;
+      transition: transform .15s ease;
+    }
+    .floorWrap { height: 760px; overflow: auto; position: relative; cursor: grab; }
+    .floorWrap.panning { cursor: grabbing; user-select: none; }
+    .zoom-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      background: #0f172a;
+      border-radius: 8px 8px 0 0;
+      border-bottom: 1px solid #334155;
+    }
+    .zoom-bar button {
+      background: #334155;
+      color: #e2e8f0;
+      border: none;
+      border-radius: 6px;
+      padding: 4px 12px;
+      font-size: 15px;
+      cursor: pointer;
+      line-height: 1.2;
+    }
+    .zoom-bar button:hover { background: #475569; }
+    .zoom-lbl { color: #94a3b8; font-size: 13px; min-width: 42px; text-align: center; }
+    .conn { position: absolute; width: 1700px; height: 900px; }
+    .station {
+      position: absolute;
+      width: 140px;
+      padding: 10px;
+      background: linear-gradient(145deg, #334155, #0f172a);
+      border: 1px solid #64748b;
+      border-radius: 12px;
+      cursor: move;
+    }
+    .wipc { color: #38bdf8; font-weight: bold; }
+    .pcb {
+      position: absolute;
+      width: 24px;
+      height: 16px;
+      border-radius: 3px;
+      border: 1px solid #14532d;
+      background: linear-gradient(135deg, #166534, #14532d);
+      box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.7), 0 1px 4px rgba(0, 0, 0, 0.4);
+      pointer-events: none;
+    }
+    .pcb::before {
+      content: '';
+      position: absolute;
+      left: 5px;
+      top: 4px;
+      width: 10px;
+      height: 6px;
+      border-radius: 1px;
+      background: linear-gradient(145deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.95));
+      box-shadow:
+        11px 0 0 -2px rgba(148, 163, 184, 0.8),
+        -3px -2px 0 -2px rgba(148, 163, 184, 0.75),
+        -3px 4px 0 -2px rgba(148, 163, 184, 0.75);
+    }
+    .pcb::after {
+      content: '';
+      position: absolute;
+      right: 2px;
+      top: 2px;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: var(--pcb-status, #22c55e);
+      box-shadow: 0 0 6px var(--pcb-status, #22c55e);
+    }
+    .normal { --pcb-status: #22c55e; }
+    .fail { --pcb-status: #ef4444; }
+    .repair { --pcb-status: #f59e0b; }
+    .cfg-row { display: flex; justify-content: space-between; margin: 4px 0; }
+    .cfg-row input { width: 80px; }
+  </style>
+</head>
+<body>
+  <div class="header">Production Simulation Dashboard</div>
+  <div class="kpis">
+    <div class="card">Input<div id="i" class="v">0</div></div>
+    <div class="card">Output<div id="o" class="v">0</div></div>
+    <div class="card">Yield<div id="y" class="v">100%</div></div>
+    <div class="card">WIP<div id="w" class="v">0</div></div>
+    <div class="card">Fail<div id="f" class="v">0</div></div>
+    <div class="card">UPH<div id="uph" class="v">0</div></div>
+  </div>
+  <div class="main">
+    <div>
+      <div class="panel">
+        <button onclick="startSim()">Start</button>
+        <button onclick="stopSim()">Stop</button>
+        <button onclick="resetSim()">Reset</button>
+      </div>
+      <div class="panel">
+        <h3>Simulation Configuration</h3>
+        <div class="cfg-row"><label>Loader Time(s)</label><input id="cfgLoader" value="0.5"></div>
+        <div class="cfg-row"><label>SMT Time(s)</label><input id="cfgSMT" value="1"></div>
+        <div class="cfg-row"><label>AOI Time(s)</label><input id="cfgAOI" value="0.8"></div>
+        <div class="cfg-row"><label>Assembly Time(s)</label><input id="cfgAssembly" value="1"></div>
+        <div class="cfg-row"><label>ICT Time(s)</label><input id="cfgICT" value="0.8"></div>
+        <div class="cfg-row"><label>Repair Time(s)</label><input id="cfgRepair" value="1.5"></div>
+        <div class="cfg-row"><label>Pack Time(s)</label><input id="cfgPack" value="0.5"></div>
+        <div class="cfg-row"><label>Conveyor Time(s)</label><input id="cfgConveyor" value="1"></div>
+        <hr>
+        <div class="cfg-row"><label>AOI Failure %</label><input id="cfgAOIFail" value="15"></div>
+        <div class="cfg-row"><label>ICT Failure %</label><input id="cfgICTFail" value="8"></div>
+      </div>
+      <div class="panel"><div id="log" class="log"></div></div>
+    </div>
+    <div class="panel" style="padding:0">
+      <div class="zoom-bar">
+        <button onclick="zoomIn()">＋</button>
+        <button onclick="zoomOut()">－</button>
+        <button onclick="zoomReset()">⟳ Reset</button>
+        <span class="zoom-lbl" id="zoomLbl">100%</span>
+      </div>
+      <div class="floorWrap" id="floorWrap">
+        <div id="floor" class="floor"><svg id="svg" class="conn"></svg></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let units = [], uid = 1, input = 0, passCt = 0, failCt = 0, startTime = null, loop = null, gen = null;
+    let zoomLevel = 1;
+    const ZOOM_STEP = 0.1, ZOOM_MIN = 0.3, ZOOM_MAX = 2;
+    const st = { Loader: [80, 320], SMT: [280, 320], AOI: [500, 320], Assembly: [720, 320], ICT: [940, 320], Pack: [1160, 320], Output: [1380, 320], Repair: [760, 540] };
+    const floor = document.getElementById('floor');
+    const svg = document.getElementById('svg');
+    const floorWrap = document.getElementById('floorWrap');
+
+    function logMsg(t) {
+      document.getElementById('log').innerHTML = new Date().toLocaleTimeString() + ' ' + t + '<br>' + document.getElementById('log').innerHTML;
+    }
+
+    function proc(n) { return (parseFloat(document.getElementById('cfg' + n).value) || 1) * 1000; }
+    function conveyorTime() { return (parseFloat(document.getElementById('cfgConveyor').value) || 1) * 1000; }
+
+    Object.entries(st).forEach(([n, p]) => {
+      const d = document.createElement('div');
+      d.className = 'station';
+      d.id = n;
+      d.style.left = p[0] + 'px';
+      d.style.top = p[1] + 'px';
+      d.innerHTML = '<b>' + n + '</b><div class=wipc id=wip_' + n + '>WIP:0</div>';
+      floor.appendChild(d);
+      drag(d);
+    });
+
+    function draw() {
+      svg.innerHTML = '';
+      [['Loader', 'SMT'], ['SMT', 'AOI'], ['AOI', 'Assembly'], ['Assembly', 'ICT'], ['ICT', 'Pack'], ['Pack', 'Output'], ['AOI', 'Repair'], ['Repair', 'ICT']].forEach(r => {
+        const a = document.getElementById(r[0]);
+        const b = document.getElementById(r[1]);
+        svg.innerHTML += "<line x1='" + (a.offsetLeft + 70) + "' y1='" + (a.offsetTop + 30) + "' x2='" + (b.offsetLeft + 70) + "' y2='" + (b.offsetTop + 30) + "' stroke='#64748b' stroke-width='5'/>";
+      });
+    }
+
+    function drag(el) {
+      let moving = false, x = 0, y = 0;
+      el.onmousedown = e => {
+        if (e.button !== 0) return;
+        e.stopPropagation();
+        moving = true;
+        x = e.clientX;
+        y = e.clientY;
+      };
+      window.addEventListener('mousemove', e => {
+        if (!moving) return;
+        const dx = (e.clientX - x) / zoomLevel;
+        const dy = (e.clientY - y) / zoomLevel;
+        el.style.left = (el.offsetLeft + dx) + 'px';
+        el.style.top = (el.offsetTop + dy) + 'px';
+        x = e.clientX;
+        y = e.clientY;
+        draw();
+      });
+      window.addEventListener('mouseup', () => { moving = false; });
+    }
+
+    function setupPanelPan() {
+      let panning = false, startX = 0, startY = 0, startScrollLeft = 0, startScrollTop = 0;
+      floorWrap.addEventListener('mousedown', e => {
+        if (e.button !== 0) return;
+        if (e.target.closest('.station')) return;
+        panning = true;
+        floorWrap.classList.add('panning');
+        startX = e.clientX;
+        startY = e.clientY;
+        startScrollLeft = floorWrap.scrollLeft;
+        startScrollTop = floorWrap.scrollTop;
+        e.preventDefault();
+      });
+      window.addEventListener('mousemove', e => {
+        if (!panning) return;
+        floorWrap.scrollLeft = startScrollLeft - (e.clientX - startX);
+        floorWrap.scrollTop = startScrollTop - (e.clientY - startY);
+      });
+      window.addEventListener('mouseup', () => {
+        if (!panning) return;
+        panning = false;
+        floorWrap.classList.remove('panning');
+      });
+    }
+
+    draw();
+    setupPanelPan();
+
+    function startSim() {
+      if (loop) return;
+      logMsg('[SYSTEM] Simulation Started');
+      startTime = Date.now();
+      gen = setInterval(() => {
+        const id = uid++;
+        input++;
+        units.push({ id: id, node: 'Loader', enter: Date.now(), wait: proc('Loader'), state: 'normal' });
+        logMsg('[CREATE] Unit ' + id + ' entered Loader');
+      }, 1000);
+      loop = setInterval(tick, 40);
+    }
+
+    function stopSim() {
+      if (gen) clearInterval(gen);
+      if (loop) clearInterval(loop);
+      gen = loop = null;
+      logMsg('[SYSTEM] Simulation Stopped');
+    }
+
+    function resetSim() {
+      stopSim();
+      units.forEach(u => u.el && u.el.remove());
+      units = [];
+      uid = 1;
+      input = 0;
+      passCt = 0;
+      failCt = 0;
+      document.getElementById('log').innerHTML = '';
+      update();
+      logMsg('[SYSTEM] Simulation Reset');
+    }
+
+    function nextNode(u) {
+      if (u.node === 'Loader') return 'SMT';
+      if (u.node === 'SMT') return 'AOI';
+      if (u.node === 'AOI') {
+        if (Math.random() < cfgAOIFail.value / 100) {
+          failCt++;
+          u.state = 'fail';
+          logMsg('[FAIL] Unit ' + u.id + ' FAILED AOI -> Repair');
+          return 'Repair';
+        }
+        logMsg('[PASS] Unit ' + u.id + ' PASSED AOI');
+        return 'Assembly';
+      }
+      if (u.node === 'Assembly') return 'ICT';
+      if (u.node === 'ICT') {
+        if (Math.random() < cfgICTFail.value / 100) {
+          failCt++;
+          u.state = 'fail';
+          logMsg('[FAIL] Unit ' + u.id + ' FAILED ICT -> Repair');
+          return 'Repair';
+        }
+        logMsg('[PASS] Unit ' + u.id + ' PASSED ICT');
+        return 'Pack';
+      }
+      if (u.node === 'Repair') {
+        u.state = 'repair';
+        return 'ICT';
+      }
+      if (u.node === 'Pack') return 'Output';
+    }
+
+    function tick() {
+      units.forEach(u => {
+        if (!u.target && Date.now() - u.enter < u.wait) return;
+        if (!u.target) {
+          u.target = nextNode(u);
+          u.prog = 0;
+          u.moveStart = Date.now();
+          u.moveDuration = conveyorTime();
+        }
+        if (!u.el) {
+          u.el = document.createElement('div');
+          floor.appendChild(u.el);
+        }
+        const a = document.getElementById(u.node);
+        const b = document.getElementById(u.target);
+        u.prog = Math.min(1, (Date.now() - u.moveStart) / u.moveDuration);
+        u.el.className = 'pcb ' + (u.state === 'fail' ? 'fail' : u.state === 'repair' ? 'repair' : 'normal');
+        u.el.style.left = (a.offsetLeft + (b.offsetLeft - a.offsetLeft) * u.prog) + 'px';
+        u.el.style.top = (a.offsetTop + (b.offsetTop - a.offsetTop) * u.prog) + 'px';
+        if (u.prog >= 1) {
+          u.node = u.target;
+          u.target = null;
+          logMsg('[MOVE] Unit ' + u.id + ' entered ' + u.node);
+          if (u.node === 'Repair') logMsg('[REPAIR] Unit ' + u.id + ' entered Repair');
+          u.enter = Date.now();
+          u.wait = u.node === 'Output' ? 0 : proc(u.node);
+          if (u.node === 'Output') {
+            passCt++;
+            logMsg('[COMPLETE] Unit ' + u.id + ' completed production');
+            u.done = true;
+            u.el.remove();
+          }
+        }
+      });
+      units = units.filter(x => !x.done);
+      update();
+    }
+
+    function update() {
+      Object.keys(st).forEach(n => {
+        document.getElementById('wip_' + n).textContent = 'WIP:' + units.filter(u => u.node === n).length;
+      });
+      i.textContent = input;
+      o.textContent = passCt;
+      f.textContent = failCt;
+      w.textContent = units.length;
+      y.textContent = ((passCt / Math.max(1, passCt + failCt)) * 100).toFixed(1) + '%';
+      uph.textContent = startTime ? Math.round(passCt / Math.max((Date.now() - startTime) / 3600000, 1 / 3600)) : 0;
+    }
+
+    function applyZoom() {
+      floor.style.transform = 'scale(' + zoomLevel + ')';
+      document.getElementById('zoomLbl').textContent = Math.round(zoomLevel * 100) + '%';
+    }
+
+    function zoomIn() {
+      zoomLevel = Math.min(ZOOM_MAX, +(zoomLevel + ZOOM_STEP).toFixed(2));
+      applyZoom();
+    }
+
+    function zoomOut() {
+      zoomLevel = Math.max(ZOOM_MIN, +(zoomLevel - ZOOM_STEP).toFixed(2));
+      applyZoom();
+    }
+
+    function zoomReset() {
+      zoomLevel = 1;
+      applyZoom();
+    }
+
+    floorWrap.addEventListener('wheel', e => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      e.deltaY < 0 ? zoomIn() : zoomOut();
+    }, { passive: false });
+
+    update();
+  </script>
+</body>
+</html>
