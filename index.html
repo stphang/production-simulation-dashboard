@@ -65,6 +65,22 @@
       background: linear-gradient(135deg, #166534, #14532d);
       box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.7), 0 1px 4px rgba(0, 0, 0, 0.4);
       pointer-events: none;
+      overflow: visible;
+    }
+    .pcb-label {
+      position: absolute;
+      left: 26px;
+      top: -8px;
+      white-space: nowrap;
+      font-size: 10px;
+      font-weight: 700;
+      color: #e2e8f0;
+      text-shadow: 0 1px 2px rgba(15, 23, 42, 0.9);
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(148, 163, 184, 0.4);
+      border-radius: 4px;
+      padding: 2px 5px;
+      line-height: 1.2;
     }
     .pcb::before {
       content: '';
@@ -348,8 +364,9 @@
           return;
         }
         const id = uid++;
+        const label = 'PCB-' + id;
         input++;
-        units.push({ id: id, node: 'Loader', enter: Date.now(), wait: proc('Loader'), state: 'normal' });
+        units.push({ id: id, node: 'Loader', enter: Date.now(), wait: proc('Loader'), state: 'normal', label: label });
         logMsg('[CREATE] Unit ' + id + ' entered Loader');
       }, 1000);
       loop = setInterval(tick, 40);
@@ -433,7 +450,7 @@
           // First time we see this SN — spawn it at this process
           snState[sn] = { node: pn };
           input++;
-          const u = { id: sn, node: pn, enter: Date.now(), wait: 0, state: 'normal', manual: true };
+          const u = { id: sn, node: pn, enter: Date.now(), wait: 0, state: 'normal', manual: true, label: sn };
           units.push(u);
           logMsg('[MANUAL] ' + sn + ' appeared at ' + pn);
         } else if (prev.node !== pn) {
@@ -451,7 +468,7 @@
           } else {
             // Unit already finished — re-spawn in transit
             const nu = { id: sn, node: prev.node, target: pn, prog: 0, moveStart: Date.now(),
-                         moveDuration: conveyorTime(), enter: Date.now(), wait: 0, state: 'normal', manual: true };
+                           moveDuration: conveyorTime(), enter: Date.now(), wait: 0, state: 'normal', manual: true, label: sn };
             units.push(nu);
           }
           logMsg('[MANUAL] ' + sn + ': ' + prev.node + ' → ' + pn);
@@ -504,14 +521,15 @@
         // Manual unit sitting idle at a node (no target yet)
         if (!u.target) return;
 
-        if (!u.el) { u.el = document.createElement('div'); floor.appendChild(u.el); }
+        if (!u.el) { u.el = document.createElement('div'); u.el.className = 'pcb'; floor.appendChild(u.el); }
 
         const a = document.getElementById(u.node);
         const b = document.getElementById(u.target);
         if (!a || !b) return;
 
-        u.prog = Math.min(1, (Date.now() - u.moveStart) / u.moveDuration);
+        u.el.innerHTML = '<span class="pcb-label">' + String(u.label || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>';
         u.el.className = 'pcb ' + (u.state === 'fail' ? 'fail' : u.state === 'repair' ? 'repair' : 'normal');
+        u.prog = Math.min(1, (Date.now() - u.moveStart) / u.moveDuration);
         u.el.style.left = (a.offsetLeft + (b.offsetLeft - a.offsetLeft) * u.prog) + 'px';
         u.el.style.top  = (a.offsetTop  + (b.offsetTop  - a.offsetTop)  * u.prog) + 'px';
 
